@@ -10,7 +10,9 @@ import { isPayPalHeader, isShopifyHeader, isStripeHeader, parsePayPal, parseShop
 import { findHeaderRow } from "./table.ts";
 import type { ParsedStatement, StatementFormat } from "./types.ts";
 
-type Detected = { format: "camt053"; text: string } | { format: Exclude<StatementFormat, "camt053" | "enablebanking">; rows: string[][]; headerRow: number };
+type Detected =
+  | { format: "camt053"; text: string } // „accountable-xlsx“ entsteht nie aus einer Datei: die Umsätze kommen mit dem Export, nicht als Kontoauszug
+  | { format: Exclude<StatementFormat, "camt053" | "enablebanking" | "accountable-xlsx">; rows: string[][]; headerRow: number };
 
 function detect(text: string, label: string): Detected {
   const trimmed = text.trimStart();
