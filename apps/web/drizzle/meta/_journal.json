@@ -1611,6 +1611,20 @@
       "when": 1794643109074,
       "tag": "0229_vorsteuerabzug_vorgabe",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1794646347723,
+      "tag": "0230_rechnung_verrechnung_korrektur",
+      "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1794646372199,
+      "tag": "0231_rechnung_verrechnung_korrektur_trigger",
+      "breakpoints": true
     }
   ]
 }
