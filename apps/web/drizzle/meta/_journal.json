@@ -1615,15 +1615,22 @@
     {
       "idx": 230,
       "version": "7",
-      "when": 1794646347723,
-      "tag": "0230_rechnung_verrechnung_korrektur",
+      "when": 1794645219072,
+      "tag": "0230_beleg_leistungszeitraum",
       "breakpoints": true
     },
     {
       "idx": 231,
       "version": "7",
-      "when": 1794646372199,
-      "tag": "0231_rechnung_verrechnung_korrektur_trigger",
+      "when": 1794665047159,
+      "tag": "0231_rechnung_verrechnung_korrektur",
+      "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "7",
+      "when": 1794665057706,
+      "tag": "0232_rechnung_verrechnung_korrektur_trigger",
       "breakpoints": true
     }
   ]
