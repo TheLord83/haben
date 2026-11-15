@@ -5,8 +5,9 @@ import {
   filingPeriodSchema,
   FREQUENCY_START_MONTHS,
   periodKey,
-  recentFilingPeriods,
   latestEndedPeriod,
+  openFilingPeriod,
+  recentFilingPeriods,
   lastMonthOfPeriod,
   VAT_FREQUENCIES,
   type VatPeriod,
@@ -19,6 +20,7 @@ import {
   computeVatFigures,
   dauerfristFor,
   dauerfristOverview,
+  abgegebeneZeitraeume,
   frequencyOverview,
   kz39For,
   loadFrequencies,
@@ -125,6 +127,22 @@ export const getFilingPeriodKey = createServerFn({ method: "GET" })
   .handler(async () => {
     const now = new Date();
     return periodKey(latestEndedPeriod(await loadFrequencies(), currentMonth(now)) ?? currentFilingPeriod(now));
+  });
+
+/**
+ * Zeitraum, den /umsatzsteuer öffnet: der älteste abgelaufene, der noch nicht abgegeben ist (#1102). Ein laufender
+ * Zeitraum kommt nicht in Frage, weil eine Voranmeldung erst nach Ablauf abzugeben ist (§ 18 Abs. 1 UStG); sind alle
+ * abgelaufenen abgegeben, bleibt es beim zuletzt abgelaufenen. Die Auswahl selbst ist eine reine Funktion
+ * (`openFilingPeriod` in packages/core, Tests in voranmeldungszeitraum.test.ts).
+ */
+export const getOpenFilingPeriodKey = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const now = new Date();
+    const settings = await loadFrequencies();
+    const today = currentMonth(now);
+    const offen = openFilingPeriod(settings, today, await abgegebeneZeitraeume());
+    return periodKey(offen ?? latestEndedPeriod(settings, today) ?? currentFilingPeriod(now));
   });
 
 export const getOverview = createServerFn({ method: "GET" })
