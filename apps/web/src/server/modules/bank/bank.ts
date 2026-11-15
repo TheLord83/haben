@@ -75,6 +75,7 @@ import {
   unbilledAdvanceRequest,
 } from "../rechnungen/index.ts";
 import { dauerbelegSuggestions } from "./dauerbeleg-vorschlaege.ts";
+import { freigabeNachziehen } from "../umsatzsteuer/index.ts";
 import { kleinunternehmerHistory, lastDayOfMonth, loadCompany } from "../stammdaten/index.ts";
 import { assertUstvaOffen, ustvaLabels, ustvaOpenItems } from "../umsatzsteuer/index.ts";
 import { sha256Of } from "../../storage.ts";
@@ -1152,6 +1153,8 @@ export async function bookPart(tx: Tx, company: Awaited<ReturnType<typeof openBo
     taxRate?: number;
     directDebitItemId?: string;
   } = {};
+  // Beleg dieses Teils, damit die Freigabe zum Leistungsdatum nachgezogen wird (#930)
+  let beleg: Parameters<typeof freigabeNachziehen>[1] | null = null;
 
   if (part.kind === "invoice") {
     const invoice = await lockInvoice(tx, part.invoiceId);
@@ -1203,12 +1206,13 @@ export async function bookPart(tx: Tx, company: Awaited<ReturnType<typeof openBo
       throw new BankError(`Der Beleg ist nur noch über ${Math.abs(open) / 100} € offen.`);
     }
     lines = documentPaymentPosting(part.amount, company.kontenrahmen);
-    // Gutschrift „erstattet bereits Bezahltes“ (#786): der erstattete Anteil geht vom Zwischenkonto auf die Vorsteuer
-    if (doc.erstattetBezahltes) {
-      lines.push(...(await vorsteuerAusgleich(tx, doc, await belegTotals(tx, doc), part.amount, company.kontenrahmen)));
-    }
+    // Vorsteuer vom Zwischenkonto auf die Vorsteuer: die Zahlung einer Rechnung, deren Leistung beim Buchen noch nicht
+    // ausgeführt war (#693), und die Erstattung einer Gutschrift „erstattet bereits Bezahltes“ (#786). Hat die Buchung
+    // nichts auf dem Zwischenkonto, kommt nichts dazu (Altbestand, Kleinunternehmer, 0 %)
+    lines.push(...(await vorsteuerAusgleich(tx, doc, await belegTotals(tx, doc), part.amount, company.kontenrahmen, bank.bookingDate)));
     description = `Zahlung Beleg ${doc.invoiceNumber || doc.filename} · ${doc.supplierName}`;
     target = { documentId: doc.id };
+    beleg = doc;
   } else if (part.kind === "ustva") {
     // Buchung wie „Umsatzsteuer an das Finanzamt“ (SKR03 1780, SKR04 3820); neu ist nur der Bezug auf die Voranmeldung
     const label = await assertUstvaOffen(tx, part.vatReturnId, part.amount);
@@ -1247,6 +1251,9 @@ export async function bookPart(tx: Tx, company: Awaited<ReturnType<typeof openBo
     sourceId: allocation!.id,
     lines: onLedger(lines, company.kontenrahmen, bank.ledgerIndex),
   });
+  // Zahlung vor der Ausführung (#930): Die vorausdatierte Freigabe zurücknehmen, den Rest wieder festschreiben —
+  // nach der Buchung, damit der gezogene Anteil im Journal steht und der Saldo den Rest zeigt
+  if (beleg) await freigabeNachziehen(tx, beleg, company);
 }
 
 /** Ordnet (einen Teil) eines Umsatzes zu und bucht die Zahlung. */
@@ -1445,6 +1452,12 @@ async function reverseOne(tx: Tx, allocation: typeof schema.allocations.$inferSe
       ),
       reversesId: entry.id,
     });
+    // Aufgehobene Zahlung vor der Ausführung (#930): Der Vorgang ist wieder offen; der freigegebene Anteil fällt am Tag
+    // der Aufhebung zurück, der Rest gehört wieder zum Ausführungsdatum
+    if (allocation.documentId) {
+      const [aufgehoben] = await tx.select().from(schema.documents).where(eq(schema.documents.id, allocation.documentId));
+      if (aufgehoben) await freigabeNachziehen(tx, aufgehoben, books);
+    }
   }
 }
 
@@ -1549,10 +1562,9 @@ export async function bookWriteOff(
       await assertNotCancelled(tx, doc.id);
       amount = documentOpen(doc.gross, await settledOn(tx, "document_id", doc.id));
       lines = exchangeDifferencePosting({ kind: "document" }, amount, company.kontenrahmen);
-      // Die Steuer bleibt beim Kurs des Belegs; der ausgeglichene Anteil geht trotzdem vom Zwischenkonto (#786)
-      if (doc.erstattetBezahltes) {
-        lines.push(...(await vorsteuerAusgleich(tx, doc, await belegTotals(tx, doc), amount, company.kontenrahmen)));
-      }
+      // Die Steuer bleibt beim Kurs des Belegs; der ausgeglichene Anteil geht trotzdem vom Zwischenkonto, wenn dort
+      // etwas steht: geparkte Vorsteuer (#693) oder eine Gutschrift „erstattet bereits Bezahltes“ (#786)
+      lines.push(...(await vorsteuerAusgleich(tx, doc, await belegTotals(tx, doc), amount, company.kontenrahmen, input.date)));
       description = `Kursdifferenz · Beleg ${doc.invoiceNumber || doc.filename} · ${doc.supplierName}`;
       target = { invoiceId: null, documentId: doc.id };
     }
@@ -1575,7 +1587,7 @@ export async function bookWriteOff(
     const totals = { net: doc.net, tax: doc.tax, gross: doc.gross, taxes };
     // Gutschrift „erstattet bereits Bezahltes“ (#786): Der Rest erstattet nichts mehr, die Steuerzeile schreibt den Rest
     // des Zwischenkontos ab; aus dem Betrag dieses Skontos allein gerechnet bliebe ein Cent darauf stehen
-    lines = documentWriteOffPosting(totals, amount, company.kontenrahmen, doc.vorsteuerAbzug, await vorsteuerAbschreibung(tx, doc, totals, amount));
+    lines = documentWriteOffPosting(totals, amount, company.kontenrahmen, doc.vorsteuerAbzug, await vorsteuerAbschreibung(tx, doc, totals, amount, input.date));
     description = `Skonto erhalten · Beleg ${doc.invoiceNumber || doc.filename} · ${doc.supplierName}`;
     target = { invoiceId: null, documentId: doc.id };
   } else {

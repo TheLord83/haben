@@ -8,6 +8,7 @@ import { UserError } from "../../errors.ts";
 import { today } from "../../today.ts";
 import { openBooks, post, reverseLinesIn } from "../buchhaltung/index.ts";
 import { settledOn } from "./bank.ts";
+import { freigabeNachziehen } from "../umsatzsteuer/index.ts";
 import { belegTotals, vorsteuerAusgleich } from "./vorsteuer-ausgleich.ts";
 
 /*
@@ -70,6 +71,8 @@ async function beleg(tx: Tx, id: string, sperren = false) {
       status: schema.documents.status,
       privateShare: schema.documents.privateShare,
       erstattetBezahltes: schema.documents.erstattetBezahltes,
+      serviceFrom: schema.documents.serviceFrom,
+      serviceTo: schema.documents.serviceTo,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
@@ -155,12 +158,13 @@ export async function settleDocuments(actor: string, input: SettlementInput) {
     // Verbindlichkeit sinkt, positiv bei der Gutschrift. Aus dem offenen Rest, nicht aus der Rolle des Belegs: sonst
     // wäre es falsch, sobald der geöffnete Beleg die Gutschrift ist (negativer Rest) und der Rest wüchse auf beiden Seiten.
     const betraege = [-Math.sign(restA) * parsed.amount, -Math.sign(restB) * parsed.amount];
-    // Vorsteuer einer Gutschrift „erstattet bereits Bezahltes“ (#786): Die Aufrechnung ist der Ausgleich, der sie mindert,
-    // also geht der verrechnete Anteil vom Zwischenkonto auf die Vorsteuer (§ 17 Abs. 1 Satz 2 und 8 UStG). Die Zeilen
-    // stehen vor dem Einfügen der Verrechnung fest: sonst zählte der verrechnete Betrag schon als erledigt.
+    // Vorsteuer vom Zwischenkonto auf die Vorsteuer: geparkte Vorsteuer einer noch nicht ausgeführten Leistung (#693)
+    // und eine Gutschrift „erstattet bereits Bezahltes“ (#786). Die Aufrechnung ist der Ausgleich, der sie mindert
+    // (§ 17 Abs. 1 Satz 2 und 8 UStG); ohne Buchung auf dem Zwischenkonto kommt nichts dazu. Die Zeilen stehen vor dem
+    // Einfügen der Verrechnung fest: sonst zählte der verrechnete Betrag schon als erledigt.
     const steuer: PostingLine[][] = [];
     for (const [seite, doc] of [a, b].entries()) {
-      steuer.push(doc.erstattetBezahltes ? await vorsteuerAusgleich(tx, doc, await belegTotals(tx, doc), betraege[seite]!, company.kontenrahmen) : []);
+      steuer.push(await vorsteuerAusgleich(tx, doc, await belegTotals(tx, doc), betraege[seite]!, company.kontenrahmen, date));
     }
     const rows = await tx
       .insert(schema.documentSettlements)
@@ -181,6 +185,8 @@ export async function settleDocuments(actor: string, input: SettlementInput) {
         lines: [...verrechnungPosting(betraege[seite]!, company.kontenrahmen), ...steuer[seite]!],
       });
     }
+    // Verrechnung vor der Ausführung (#930): was noch wartet, bleibt zum Ausführungsdatum freigegeben
+    for (const doc of [a, b]) await freigabeNachziehen(tx, { ...doc, documentDate: doc.date, supplierName: doc.supplier }, company);
     return { ids: rows.map((r) => r.id), amount: parsed.amount, date };
   });
 }
