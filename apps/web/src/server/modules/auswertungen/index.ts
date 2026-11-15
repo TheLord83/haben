@@ -11,7 +11,17 @@ export { datevExport, DatevExportError, datevNumbersSchema, gebuchteJahre, saveD
 export { chainHead, checkIntegrity, checkPruefwert, formatPruefwert, parsePruefwert, type IntegrityReport } from "./integrity.ts";
 export { runDueFileCheck, runFileCheck, type FileCheck, type FileProblem } from "./file-integrity.ts";
 export { vorauszahlungVorjahrHinweis, ZEHN_TAGE_REGEL, zehnTageKennzeichen, type ZehnTageKennzeichen } from "./euer-jahreswechsel.ts";
-export { euerForYear, lohnZahlungenUmJahreswechsel, openPositions, reportYears, umsatzsteuerVorjahreUmJahreswechsel, type OpenPosition } from "./reports.ts";
+export {
+  euerForYear,
+  jahresPostenHinweis,
+  lohnZahlungenUmJahreswechsel,
+  openPositions,
+  openPositionsImJahr,
+  reportYears,
+  umsatzsteuerVorjahreUmJahreswechsel,
+  type JahresPosten,
+  type OpenPosition,
+} from "./reports.ts";
 export { kleinunternehmerStand, vereinnahmterUmsatz } from "./kleinunternehmer.ts";
 export { externalSettlementLinks } from "./import-zahlungsbezuege.ts";
 export { runDuePruefwertMail } from "./pruefwert-mail.ts";
