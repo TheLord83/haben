@@ -516,15 +516,38 @@ async function estYear(year: number, euer?: EuerYear): Promise<EstYear> {
 }
 
 /**
- * Ohne Bescheid trägt der ESt-Vermerk keinen Betrag (#1073). Dann gibt es nichts zu vergleichen, und die Seite sagt das
- * auch: Ohne diesen Satz stünde Habens Schätzung allein da und sähe aus wie das Ergebnis der Veranlagung.
+/**
+ * Ohne Betrag im ESt-Vermerk (#1073) gibt es nichts zu vergleichen; die Seite sagt das, sonst sähe Habens Schätzung
+ * aus wie das Ergebnis der Veranlagung. Den Bescheid trägt niemand mehr ein, deshalb steht er hier auch nicht.
  */
 export function ohneBetragHinweis(vermerk: { amount: number | null } | null): Issue[] {
   if (!vermerk || vermerk.amount !== null) return [];
   return [
     {
       tone: "hinweis",
-      text: "Die Einkommensteuererklärung ist ohne Betrag vermerkt. Das Ergebnis steht erst mit dem Steuerbescheid fest, deshalb steht hier kein Vergleich. Trag den Bescheid ein, sobald er vorliegt.",
+      text: "Die Einkommensteuererklärung ist ohne Betrag vermerkt. Das Ergebnis steht erst mit dem Steuerbescheid fest, deshalb steht hier kein Vergleich.",
+    },
+  ];
+}
+
+/**
+ * Die festgesetzte Steuer aus dem Vordruck gegen Habens Schätzung (#1082). Haben kennt Vorsorge und Kapitalerträge
+ * nur so weit, wie sie eingetragen sind; der Unterschied soll auf der Seite stehen und nicht im Kopf des Betreibers.
+ */
+function estAbweichungHinweis(zeilen: Record<string, number>, est: EstYear): Issue[] {
+  const erklaert = zeilen.festgesetzteSteuer;
+  if (erklaert === undefined) return [];
+  // Die Zeile ist die Einkommensteuer allein; Soli und Kirchensteuer setzt der Bescheid gesondert fest (#1083, 52dad78d)
+  const gerechnet = est.prognose.einkommensteuer;
+  if (gerechnet === erklaert) return [];
+  const abweichung = gerechnet - erklaert;
+  return [
+    {
+      tone: "hinweis",
+      text: `Einkommensteuer: Haben rechnet ${formatEuro(gerechnet)}, im Vordruck stehen ${formatEuro(erklaert)}, also ${formatEuro(Math.abs(abweichung))} ${abweichung > 0 ? "mehr" : "weniger"} bei Haben. Was nicht erfasst ist, etwa Zuschüsse oder einbehaltene Kapitalertragsteuer, erklärt den Unterschied.`,
+    },
+  ];
+}
     },
   ];
 }
@@ -687,7 +710,11 @@ export async function annualOverview(year: number, today: string) {
   const ustVermerk = submitted("ust");
   const euerVermerk = submitted("euer");
   const estVermerk = submitted("est");
-  const [ustZeilen, euerZeilen] = await Promise.all([erklaerteZeilen(ustVermerk?.id ?? null), erklaerteZeilen(euerVermerk?.id ?? null)]);
+  const [ustZeilen, euerZeilen, estZeilen] = await Promise.all([
+    erklaerteZeilen(ustVermerk?.id ?? null),
+    erklaerteZeilen(euerVermerk?.id ?? null),
+    erklaerteZeilen(estVermerk?.id ?? null),
+  ]);
   /*
    * Die Summenzeilen der Seite zeigen nach einem Vermerk die erklärte Zahl (#1076): Habens eigene Rechnung kennt die
    * Veranlagung nicht, und in einem Jahr ohne Buchungen kehrt sie sogar das Vorzeichen um (0,00 - erklärtes Soll).
@@ -727,11 +754,13 @@ export async function annualOverview(year: number, today: string) {
         ...base,
         ...estIssues(company, euer),
         ...ohneBetragHinweis(estVermerk),
+        ...estAbweichungHinweis(estZeilen, est),
         ...(await homeofficeIssues(year, est)),
         ...(await arbeitszimmerIssues(year, est)),
       ],
       sent: sent("est"),
       submitted: estVermerk,
+      erklaert: estZeilen,
       verwaltet: false,
     },
     history,
