@@ -32,14 +32,41 @@ const EUER_SUMMEN = {
 } as const satisfies Record<string, ErklaerteZeile>;
 
 /**
- * Aufwendungen für ein häusliches Arbeitszimmer, Spalte „abziehbar“ (E6003101, im ERiC-Prüfplugin der Anlage EÜR
- * unter /EUER/BAus/Beschr_abziehbar/Abziehbar/Arbeitszimmer). Sie hat in `EUER_FIELDS` kein Feld, weil Haben sie
- * nicht übermittelt; für eine außerhalb von Haben abgegebene Erklärung steht sie trotzdem im Protokoll (#1072).
+ * Zeilen der Einkommensteuererklärung. Sie stehen nicht in den Übermittlungsfeldern, weil Haben sie auf viele
+ * Anlagen verteilt schickt; für eine Erklärung, die außerhalb von Haben abgegeben wurde, trägt der Betreiber sie aus
+ * dem Vordruck nach (#1082). Die Schlüssel bleiben ASCII, die Texte sind die des Vordrucks.
  */
-const EUER_ARBEITSZIMMER = {
-  field: "arbeitszimmer",
-  text: "Aufwendungen für ein häusliches Arbeitszimmer (abziehbar)",
-} as const satisfies ErklaerteZeile;
+/**
+ * Gleicht das Vorzeichen einer erklärten Zeile an den Vermerk an (#1082).
+ *
+ * Der Vordruck druckt „Erstattung oder Nachzahlung" als Betrag ohne Richtung; Haben führt Erstattungen dagegen
+ * negativ, so wie in den Vermerken und in der Abschlusszeile der Umsatzsteuer. Ohne diesen Abgleich stünde
+ * dieselbe Erstattung mit zwei Vorzeichen auf einer Seite: −10.321,97 EUR im Vermerk, +10.321,97 EUR in der
+ * erklärten Zeile.
+ */
+export function mitVorzeichen(field: string, wert: number, vermerkBetrag: number | null | undefined): number {
+  // Nur das Ergebnis der Veranlagung trägt eine Richtung; alle anderen Zeilen sind Beträge in eine Richtung
+  if (field !== "erstattung" || !vermerkBetrag) return wert;
+  return Math.sign(vermerkBetrag) * Math.abs(wert);
+}
+
+const EST_FELDER = {
+  bruttoarbeitslohn: "Bruttoarbeitslohn (Anlage N)",
+  werbungskosten: "Werbungskosten insgesamt",
+  einkuenfteNichtselbstaendig: "Einkünfte aus nichtselbständiger Arbeit",
+  einkuenfteSelbstaendig: "Einkünfte aus selbständiger Arbeit",
+  summeEinkuenfte: "Summe der Einkünfte",
+  gesamtbetrag: "Gesamtbetrag der Einkünfte",
+  vorsorgeaufwendungen: "Abziehbare Vorsorgeaufwendungen",
+  zuVersteuerndesEinkommen: "Zu versteuerndes Einkommen",
+  // In der Erklärung setzt niemand etwas fest: Die Zahl kommt aus dem Steuerprogramm, festgesetzt wird sie erst im
+  // Bescheid. Die Beschriftung sagt deshalb, woher sie stammt (#1084)
+  festgesetzteSteuer: "Einkommensteuer laut Steuerprogramm",
+  soli: "Solidaritätszuschlag laut Steuerprogramm",
+  erstattung: "Erstattung oder Nachzahlung laut Steuerprogramm",
+} as const satisfies Record<string, string>;
+
+const EST_ZEILEN: ErklaerteZeile[] = Object.entries(EST_FELDER).map(([field, text]) => ({ field, text }));
 
 type UstBetrag = Exclude<keyof UstErklaerungFigures, "kz48Zeile47Nummern">;
 
@@ -104,6 +131,16 @@ const UST_REIHENFOLGE = [
 
 const ustZeile = (field: keyof typeof UST_FELDER): ErklaerteZeile => ({ field, text: UST_FELDER[field] });
 
+/**
+ * Aufwendungen für ein häusliches Arbeitszimmer, Spalte „abziehbar“ (E6003101, im ERiC-Prüfplugin der Anlage EÜR
+ * unter /EUER/BAus/Beschr_abziehbar/Abziehbar/Arbeitszimmer). Sie hat in `EUER_FIELDS` kein Feld, weil Haben sie
+ * nicht übermittelt; für eine außerhalb von Haben abgegebene Erklärung steht sie trotzdem im Protokoll (#1072).
+ */
+const EUER_ARBEITSZIMMER = {
+  field: "arbeitszimmer",
+  text: "Aufwendungen für ein häusliches Arbeitszimmer (abziehbar)",
+} as const satisfies ErklaerteZeile;
+
 /** Zeilen je Erklärungsart, in der Reihenfolge der amtlichen Vordrucke */
 export const ERKLAERTE_ZEILEN = {
   ust: UST_REIHENFOLGE.map(ustZeile),
@@ -120,11 +157,12 @@ export const ERKLAERTE_ZEILEN = {
     euerZeile("entnahmen"),
     euerZeile("einlagen"),
   ],
+  est: EST_ZEILEN,
 } as const satisfies Record<string, readonly ErklaerteZeile[]>;
 
 export type ZeilenForm = keyof typeof ERKLAERTE_ZEILEN;
 
-export const zeilenForm = z.enum(["ust", "euer"]);
+export const zeilenForm = z.enum(["ust", "euer", "est"]);
 
 /** Die Feldkennungen, die zu dieser Erklärungsart gehören */
 export function zeilenFelder(form: ZeilenForm): readonly string[] {
