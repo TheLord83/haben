@@ -516,7 +516,6 @@ async function estYear(year: number, euer?: EuerYear): Promise<EstYear> {
 }
 
 /**
-/**
  * Ohne Betrag im ESt-Vermerk (#1073) gibt es nichts zu vergleichen; die Seite sagt das, sonst sähe Habens Schätzung
  * aus wie das Ergebnis der Veranlagung. Den Bescheid trägt niemand mehr ein, deshalb steht er hier auch nicht.
  */
@@ -545,9 +544,6 @@ function estAbweichungHinweis(zeilen: Record<string, number>, est: EstYear): Iss
     {
       tone: "hinweis",
       text: `Einkommensteuer: Haben rechnet ${formatEuro(gerechnet)}, im Vordruck stehen ${formatEuro(erklaert)}, also ${formatEuro(Math.abs(abweichung))} ${abweichung > 0 ? "mehr" : "weniger"} bei Haben. Was nicht erfasst ist, etwa Zuschüsse oder einbehaltene Kapitalertragsteuer, erklärt den Unterschied.`,
-    },
-  ];
-}
     },
   ];
 }
